@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask your PDF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f2f4f6; --panel: #ffffff; --ink: #17212b; --muted: #5e6b78;
+    --line: #d5dbe1; --accent: #1d5c7a; --accent-soft: #e3eef3; --warn: #8a5a00; --warn-soft: #fbf1d9;
+    --err: #a3262a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--paper); color: var(--ink); font: 15px/1.5 "IBM Plex Sans", system-ui, sans-serif; }
+  .app { display: grid; grid-template-columns: 320px 1fr; height: 100%; }
+  aside { padding: 28px 24px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 20px; overflow: auto; }
+  h1 { font: 500 28px/1.15 "Newsreader", Georgia, serif; margin: 0; }
+  .sub { color: var(--muted); margin: 6px 0 0; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 6px; padding: 22px 16px; text-align: center; cursor: pointer; color: var(--muted); }
+  .drop:hover, .drop.over, .drop:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); outline: none; }
+  .drop b { color: var(--ink); font-weight: 500; display: block; margin-bottom: 2px; }
+  .doc { display: none; border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+  .doc.show { display: block; }
+  .doc .name { font-weight: 600; word-break: break-word; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 10px 0 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .doc .meta { color: var(--muted); font-size: 13px; }
+  .doc.error .meta { color: var(--err); }
+  main { display: flex; flex-direction: column; min-width: 0; height: 100%; }
+  #thread { flex: 1; overflow: auto; padding: 32px clamp(20px, 6vw, 72px); display: flex; flex-direction: column; gap: 26px; }
+  .empty { margin: auto; max-width: 420px; text-align: center; color: var(--muted); }
+  .q { align-self: flex-end; max-width: 70%; background: var(--ink); color: #fff; padding: 10px 14px; border-radius: 10px 10px 2px 10px; }
+  .a { max-width: 760px; }
+  .a .text { font: 400 19px/1.6 "Newsreader", Georgia, serif; white-space: pre-wrap; }
+  .fix { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 14px; }
+  .fix button { all: unset; cursor: pointer; text-decoration: underline; font-weight: 500; }
+  .sources { margin-top: 16px; display: grid; gap: 8px; }
+  .src { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline; border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; font-size: 13px; color: var(--muted); }
+  .src a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .src a:hover { text-decoration: underline; }
+  .related { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .related button { font: inherit; font-size: 14px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .related button:hover { border-color: var(--accent); color: var(--accent); }
+  .time { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .pending { color: var(--muted); }
+  .err { color: var(--err); }
+  form { display: flex; gap: 10px; padding: 16px clamp(20px, 6vw, 72px) 24px; border-top: 1px solid var(--line); background: var(--panel); }
+  input[type=text] { flex: 1; font: inherit; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); }
+  input[type=text]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; background: #fff; }
+  form > button { font: inherit; font-weight: 500; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 0 22px; cursor: pointer; }
+  form > button:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 760px) { .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); padding: 18px; } .q { max-width: 90%; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div>
+      <h1>Ask your PDF</h1>
+      <p class="sub">Upload a document, then ask questions. Answers come with page numbers.</p>
+    </div>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PDF to upload">
+      <b>Choose a PDF</b>or drop it here
+    </div>
+    <input type="file" id="file" accept="application/pdf" hidden>
+    <div class="doc" id="doc">
+      <div class="name" id="docName"></div>
+      <div class="bar"><i id="barFill"></i></div>
+      <div class="meta" id="docMeta"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="thread">
+      <div class="empty" id="empty">Upload a PDF to get started. Spelling mistakes in your questions are fixed automatically.</div>
+    </div>
+    <form id="form">
+      <input type="text" id="question" placeholder="Ask something about the document" autocomplete="off" disabled>
+      <button id="send" disabled>Ask</button>
+    </form>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let docId = null, poller = null;
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+// ---------- upload ----------
+const drop = $('#drop'), fileInput = $('#file');
+drop.onclick = () => fileInput.click();
+drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } };
+['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => upload(e.dataTransfer.files[0]));
+fileInput.onchange = () => upload(fileInput.files[0]);
+
+async function upload(file) {
+  if (!file) return;
+  setAsk(false);
+  showDoc(file.name, 0, 'Uploading…');
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Upload failed');
+    docId = (await r.json()).doc_id;
+    clearInterval(poller);
+    poller = setInterval(checkStatus, 1000);
+  } catch (e) { showDoc(file.name, 0, e.message, true); }
+}
+
+async function checkStatus() {
+  const s = await (await fetch('/status/' + docId)).json();
+  if (s.stage === 'error') { clearInterval(poller); return showDoc(s.filename, 0, s.error, true); }
+  if (s.stage === 'ready') {
+    clearInterval(poller);
+    const ocr = s.ocr_pages ? `, ${s.ocr_pages} scanned` : '';
+    showDoc(s.filename, 100, `Ready · ${s.total_pages} pages${ocr}, ${s.chunks} sections indexed`);
+    $('#empty').textContent = 'Ask a question about ' + s.filename + '.';
+    return setAsk(true);
+  }
+  const pages = s.total_pages ? ` (${s.pages_done}/${s.total_pages} pages)` : '';
+  showDoc(s.filename, s.progress, s.stage[0].toUpperCase() + s.stage.slice(1) + pages + '…');
+}
+
+function showDoc(name, pct, meta, isErr) {
+  $('#doc').className = 'doc show' + (isErr ? ' error' : '');
+  $('#docName').textContent = name;
+  $('#barFill').style.width = pct + '%';
+  $('#docMeta').textContent = meta;
+}
+function setAsk(on) { $('#question').disabled = !on; $('#send').disabled = !on; if (on) $('#question').focus(); }
+
+// ---------- ask ----------
+$('#form').onsubmit = e => { e.preventDefault(); const q = $('#question').value.trim(); if (q) ask(q); };
+
+async function ask(q, correct = true) {
+  $('#question').value = '';
+  const thread = $('#thread');
+  $('#empty')?.remove();
+  thread.append(el('div', 'q', q));
+  const box = el('div', 'a'), pending = el('div', 'pending', 'Searching the document…');
+  box.append(pending); thread.append(box); thread.scrollTop = thread.scrollHeight;
+  setAsk(false);
+  try {
+    const r = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc_id: docId, question: q, correct }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Something went wrong');
+    pending.remove(); render(box, d);
+  } catch (e) { pending.className = 'err'; pending.textContent = e.message; }
+  setAsk(true); thread.scrollTop = thread.scrollHeight;
+}
+
+function render(box, d) {
+  if (d.changed) {
+    const fix = el('div', 'fix', 'Showing results for: ' + d.corrected + '  ');
+    const keep = el('button', null, 'Search for "' + d.original + '" instead');
+    keep.onclick = () => ask(d.original, false);
+    fix.append(keep); box.append(fix);
+  }
+  box.append(el('div', 'text', d.answer));
+  if (d.sources.length) {
+    const wrap = el('div', 'sources');
+    d.sources.forEach(s => {
+      const row = el('div', 'src');
+      const a = el('a', null, 'Page ' + s.page);
+      a.href = `/pdf/${docId}#page=${s.page}`; a.target = '_blank'; a.rel = 'noopener';
+      row.append(a, el('span', null, s.snippet + '…'));
+      wrap.append(row);
+    });
+    box.append(wrap);
+  }
+  if (d.related_questions.length) {
+    const rel = el('div', 'related');
+    d.related_questions.forEach(q => { const b = el('button', null, q); b.onclick = () => ask(q); rel.append(b); });
+    box.append(rel);
+  }
+  const t = d.timings;
+  box.append(el('div', 'time', `Answered in ${t.total}s (search ${t.search}s, writing ${t.answer}s)`));
+}
+</script>
+</body>
+</html>
